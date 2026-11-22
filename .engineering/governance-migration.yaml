@@ -4,7 +4,7 @@ to_governance_epoch: 1
 base_sha: 2a40afc22608ea1097de5b5506c91e05bacaa2a8
 requires_exact_head_validate: true
 automation_eligible: false
-rationale: Managed adoption upgrade 2c73cdd52b98db4143b379730ee0c69d284f80e8 -> a0f5972a4fbdaa5a6c87e5fe6bfa52b34ad0aad4
+rationale: Managed adoption upgrade 2c73cdd52b98db4143b379730ee0c69d284f80e8 -> 98837445913bf8d9fca67bb2431580b4cf56925f
   changes canonical governance root surfaces.
 changed_surfaces:
 - path: tools/governance_floor.py
