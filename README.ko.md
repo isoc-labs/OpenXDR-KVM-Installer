@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>한국어</strong> · <a href="https://kvm.xdr.ooo/ko">제품 페이지</a>
+  <a href="README.md">English</a> · <strong>한국어</strong> · <a href="https://kvm.isoc.ooo/ko">제품 페이지</a>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <strong>제품 페이지:</strong> <a href="https://kvm.xdr.ooo/ko">xdr.ooo/products/openxdr-kvm-installer</a>
+  <strong>제품 페이지:</strong> <a href="https://kvm.isoc.ooo/ko">isoc.ooo/products/openxdr-kvm-installer</a>
 </p>
 
 ---
@@ -71,7 +71,7 @@ flowchart TB
 
 ```bash
 sudo -i
-git clone https://github.com/xdr-labs/OpenXDR-KVM-Installer.git
+git clone https://github.com/isoc-labs/OpenXDR-KVM-Installer.git
 cd OpenXDR-KVM-Installer
 ```
 
@@ -101,7 +101,7 @@ Installer별 정확한 OS/resource 요구사항은 영문 상세 reference를 �
 
 ## 문서
 
-- **제품 페이지:** https://kvm.xdr.ooo/ko
+- **제품 페이지:** https://kvm.isoc.ooo/ko
 - 전체 installer별 단계, network 구성, troubleshooting: [README.md](README.md)
 
 ---

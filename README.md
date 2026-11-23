@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.ko.md">한국어</a> · <a href="https://kvm.xdr.ooo/">Documentation</a>
+  <strong>English</strong> · <a href="README.ko.md">한국어</a> · <a href="https://kvm.isoc.ooo/">Documentation</a>
 </p>
 
 <p align="center">
@@ -55,7 +55,7 @@ Switch to a root login shell **before** cloning so the working directory remains
 ```bash
 sudo -i
 
-git clone https://github.com/xdr-labs/OpenXDR-KVM-Installer.git
+git clone https://github.com/isoc-labs/OpenXDR-KVM-Installer.git
 cd OpenXDR-KVM-Installer
 ```
 
@@ -136,12 +136,12 @@ Stellar Appliance CLI handles supported network, NTPsec, ACL, VM, and system ope
 
 See:
 
-- https://kvm.xdr.ooo/operations/appliance-cli
-- https://github.com/xdr-labs/Stellar-appliance-cli
+- https://kvm.isoc.ooo/operations/appliance-cli
+- https://github.com/isoc-labs/Stellar-appliance-cli
 
 ## Documentation
 
-Use **https://kvm.xdr.ooo/** as the maintained user and operator guide.
+Use **https://kvm.isoc.ooo/** as the maintained user and operator guide.
 
 Start with:
 
@@ -157,8 +157,8 @@ The documentation site is intentionally the detailed reference so this README do
 
 ## Related projects
 
-- XDR Labs Portal: https://xdr.ooo/
-- Stellar Appliance CLI: https://github.com/xdr-labs/Stellar-appliance-cli
+- XDR Labs Portal: https://isoc.ooo/
+- Stellar Appliance CLI: https://github.com/isoc-labs/Stellar-appliance-cli
 
 ---
 
