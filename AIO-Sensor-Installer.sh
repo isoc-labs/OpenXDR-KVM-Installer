@@ -10280,7 +10280,7 @@ step_13_install_dp_cli() {
             return 1
         }
 
-        (cd /tmp && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('appliance_cli import OK')") >>"${ERRLOG}" 2>&1 || {
+        (cd / && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('appliance_cli import OK')") >>"${ERRLOG}" 2>&1 || {
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] ERROR: appliance_cli import failed (venv)" | tee -a "${ERRLOG}"
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] HINT: Please check ${ERRLOG}." | tee -a "${ERRLOG}"
             return 1
@@ -10293,11 +10293,21 @@ step_13_install_dp_cli() {
         fi
 
         # Runtime verification performed only based on import (removed aella_cli execution smoke test)
-        (cd /tmp && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('runtime import OK')") >>"${ERRLOG}" 2>&1 || {
+        (cd / && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('runtime import OK')") >>"${ERRLOG}" 2>&1 || {
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] ERROR: dp-cli runtime import verification failed (venv)" | tee -a "${ERRLOG}"
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] HINT: Please check ${ERRLOG}." | tee -a "${ERRLOG}"
             return 1
         }
+    fi
+
+    # Lock down the installed CLI runtime before exposing its wrappers.
+    if [[ "${_DRY}" -eq 1 ]]; then
+        log "[DRY-RUN] Enforce root-owned, non-group/world-writable CLI runtime: ${VENV_DIR}"
+    else
+        chown -R root:root "${VENV_DIR}" || return 1
+        chmod -R go-w "${VENV_DIR}" || return 1
+        chown root:root /usr/local /usr/local/bin || return 1
+        chmod go-w /usr/local /usr/local/bin || return 1
     fi
 
     # 4) /usr/local/bin/aella_cli wrapper
@@ -10306,9 +10316,12 @@ step_13_install_dp_cli() {
     else
         cat > /usr/local/bin/aella_cli <<EOF
 #!/bin/bash
-exec "${VENV_DIR}/bin/aella_cli" "\$@"
+set -eu
+[ "\$#" -eq 0 ] || exit 1
+exec "${VENV_DIR}/bin/aella_cli"
 EOF
-        chmod +x /usr/local/bin/aella_cli
+        chown root:root /usr/local/bin/aella_cli
+        chmod 0755 /usr/local/bin/aella_cli
 
         if [[ -x "${VENV_DIR}/bin/aella_cli_disk_encrypt" ]]; then
             cat > /usr/local/bin/aella_cli_disk_encrypt <<EOF
@@ -10325,11 +10338,19 @@ EOF
     else
         cat > /usr/bin/aella_cli <<'EOF'
 #!/bin/bash
-[ $# -ge 1 ] && exit 1
-cd /tmp || exit 1
-exec sudo /usr/local/bin/aella_cli
+set -eu
+if [[ $# -eq 0 ]]; then
+    :
+elif [[ $# -eq 2 && "$1" == "-c" && "$2" == "/usr/bin/aella_cli" && -z "${SSH_ORIGINAL_COMMAND:-}" ]]; then
+    :
+else
+    exit 1
+fi
+cd / || exit 1
+exec /usr/bin/sudo -n -- /usr/local/bin/aella_cli
 EOF
-        chmod +x /usr/bin/aella_cli
+        chown root:root /usr/bin/aella_cli
+        chmod 0755 /usr/bin/aella_cli
     fi
 
     # 6) Register in /etc/shells
@@ -10341,23 +10362,152 @@ EOF
         fi
     fi
 
-    # 7) stellar sudo NOPASSWD
+    # 7) Restrict stellar to the Appliance CLI and remove privileged group grants.
     if [[ "${_DRY}" -eq 1 ]]; then
-        log "[DRY-RUN] /etc/sudoers.d/stellar create: 'stellar ALL=(ALL) NOPASSWD: ALL'"
+        log "[DRY-RUN] Restrict stellar sudo to /usr/local/bin/aella_cli with no arguments."
+        log "[DRY-RUN] Remove privileged groups and install the SSH ForceCommand gate."
     else
-        echo "stellar ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/stellar
-        chmod 440 /etc/sudoers.d/stellar
+        if ! id stellar >/dev/null 2>&1; then
+            log "[ERROR] Required account 'stellar' does not exist."
+            return 1
+        fi
+        getent group stellar >/dev/null 2>&1 || groupadd --system stellar || return 1
+        usermod -g stellar stellar || return 1
+        local privileged_group
+        local -a privileged_groups=(sudo wheel admin docker lxd libvirt kvm disk shadow root adm staff)
+        for privileged_group in "${privileged_groups[@]}"; do
+            if getent group "${privileged_group}" >/dev/null 2>&1 && \\
+               id -nG stellar | tr ' ' '\\n' | grep -Fxq "${privileged_group}"; then
+                gpasswd -d stellar "${privileged_group}" >/dev/null 2>&1 || {
+                    log "[ERROR] Failed to remove stellar from privileged group ${privileged_group}."
+                    return 1
+                }
+            fi
+        done
+        for privileged_group in "${privileged_groups[@]}"; do
+            if id -nG stellar | tr ' ' '\\n' | grep -Fxq "${privileged_group}"; then
+                log "[ERROR] stellar still belongs to privileged group ${privileged_group}."
+                return 1
+            fi
+        done
+        getent group syslog >/dev/null 2>&1 || groupadd --system syslog || return 1
+        usermod -a -G syslog stellar || return 1
+        cat > /etc/sudoers.d/stellar <<'SUDOERS_EOF'
+Defaults:stellar env_reset, !setenv, secure_path="/usr/sbin:/usr/bin:/sbin:/bin"
+stellar ALL=(root) NOPASSWD: /usr/local/bin/aella_cli ""
+SUDOERS_EOF
+        chown root:root /etc/sudoers.d/stellar
+        chmod 0440 /etc/sudoers.d/stellar
         visudo -cf /etc/sudoers.d/stellar >/dev/null 2>&1 || {
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] ERROR: sudoers syntax invalid: /etc/sudoers.d/stellar" | tee -a "${ERRLOG}"
+            log "[ERROR] sudoers syntax invalid: /etc/sudoers.d/stellar"
             return 1
         }
-    fi
+        visudo -c >/dev/null 2>&1 || {
+            log "[ERROR] Global sudoers validation failed."
+            return 1
+        }
+        local sudo_listing
+        local -a sudo_rules=()
+        sudo_listing="$(sudo -l -U stellar 2>&1)" || {
+            log "[ERROR] Unable to verify stellar sudo privileges: ${sudo_listing}"
+            return 1
+        }
+        while IFS= read -r line; do
+            if [[ "${line}" =~ ^[[:space:]]*(\\(.*)$ ]]; then
+                sudo_rules+=("${BASH_REMATCH[1]}")
+            fi
+        done <<< "${sudo_listing}"
+        if [[ "${#sudo_rules[@]}" -ne 1 || "${sudo_rules[0]}" != '(root) NOPASSWD: /usr/local/bin/aella_cli ""' ]]; then
+            log "[ERROR] stellar has unexpected sudo grants; expected only the no-argument Appliance CLI rule."
+            printf '%s\\n' "${sudo_listing}" | tee -a "${ERRLOG}"
+            return 1
+        fi
 
-    # 8) syslog group
-    if id stellar >/dev/null 2>&1; then
-        run_cmd "usermod -a -G syslog stellar"
-    else
-        log "[WARN] User 'stellar' not found, skip adding to syslog group."
+        local sshd_main="/etc/ssh/sshd_config"
+        local sshd_dir="/etc/ssh/sshd_config.d"
+        local sshd_dropin="${sshd_dir}/zzzz-stellar-cli.conf"
+        local sshd_backup="${sshd_dropin}.bak.$$"
+        local had_sshd_dropin=0
+        local sshd_effective
+        if [[ ! -f "${sshd_main}" ]] || ! grep -Eq '^[[:space:]]*Include[[:space:]]+.*sshd_config\\.d/\\*\\.conf' "${sshd_main}"; then
+            log "[ERROR] sshd_config does not include sshd_config.d/*.conf; refusing unsafe SSH policy installation."
+            return 1
+        fi
+        mkdir -p "${sshd_dir}" || return 1
+        if [[ -e "${sshd_dropin}" ]]; then
+            had_sshd_dropin=1
+            cp -a "${sshd_dropin}" "${sshd_backup}" || return 1
+        else
+            : > "${sshd_backup}"
+        fi
+        cat > "${sshd_dropin}" <<'SSHD_EOF'
+Match User stellar
+    ForceCommand /usr/bin/aella_cli
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    AllowStreamLocalForwarding no
+    PermitTTY yes
+    PermitUserEnvironment no
+    PermitUserRC no
+Match all
+SSHD_EOF
+        chown root:root "${sshd_dropin}"
+        chmod 0644 "${sshd_dropin}"
+        restore_sshd_dropin() {
+            if [[ "${had_sshd_dropin}" -eq 1 ]]; then
+                cp -a "${sshd_backup}" "${sshd_dropin}"
+            else
+                rm -f "${sshd_dropin}"
+            fi
+            rm -f "${sshd_backup}"
+        }
+        if ! /usr/sbin/sshd -t 2>/dev/null; then
+            log "[ERROR] sshd configuration validation failed; restoring previous configuration."
+            restore_sshd_dropin
+            return 1
+        fi
+        sshd_effective="$(/usr/sbin/sshd -T -C user=stellar,host=localhost,addr=127.0.0.1 2>/dev/null)" || {
+            log "[ERROR] Unable to inspect effective sshd policy for stellar."
+            restore_sshd_dropin
+            return 1
+        }
+        local required_sshd_setting
+        for required_sshd_setting in \\
+            'forcecommand /usr/bin/aella_cli' \\
+            'allowtcpforwarding no' \\
+            'allowagentforwarding no' \\
+            'x11forwarding no' \\
+            'permittunnel no' \\
+            'allowstreamlocalforwarding no' \\
+            'permittty yes' \\
+            'permituserenvironment no' \\
+            'permituserrc no'; do
+            if ! grep -Fxq "${required_sshd_setting}" <<< "${sshd_effective}"; then
+                log "[ERROR] Effective sshd policy missing: ${required_sshd_setting}"
+                restore_sshd_dropin
+                return 1
+            fi
+        done
+        if systemctl is-active --quiet ssh; then
+            systemctl reload ssh || {
+                log "[ERROR] Failed to reload ssh; restoring previous SSH policy."
+                restore_sshd_dropin
+                systemctl reload ssh >/dev/null 2>&1 || true
+                return 1
+            }
+        elif systemctl is-active --quiet sshd; then
+            systemctl reload sshd || {
+                log "[ERROR] Failed to reload sshd; restoring previous SSH policy."
+                restore_sshd_dropin
+                systemctl reload sshd >/dev/null 2>&1 || true
+                return 1
+            }
+        else
+            log "[WARN] SSH service is not active; the validated policy will apply when SSH starts."
+        fi
+        rm -f "${sshd_backup}"
     fi
 
     # 9) Change login shell
@@ -10369,14 +10519,31 @@ EOF
         fi
     fi
 
-    # 10) Change /var/log/aella owner
+    # 10) Secure CLI logs and persistent state; stellar is read-only via syslog group.
     if [[ "${_DRY}" -eq 1 ]]; then
-        log "[DRY-RUN] Create /var/log/aella directory / change owner (stellar)"
+        log "[DRY-RUN] Create root:syslog 0750 CLI state/log directories and root:syslog 0640 files."
     else
-        mkdir -p /var/log/aella
-        if id stellar >/dev/null 2>&1; then
-            chown -R stellar:stellar /var/log/aella || true
-        fi
+        for protected_dir in /var/log/aella /var/lib/aella; do
+            if [[ -L "${protected_dir}" ]]; then
+                log "[ERROR] Refusing symlink at security-sensitive directory ${protected_dir}."
+                return 1
+            fi
+        done
+        install -d -o root -g syslog -m 0750 \\
+            /var/log/aella \\
+            /var/lib/aella \\
+            /var/lib/aella/hotfix \\
+            /var/lib/aella/hotfix/logs
+        find /var/log/aella -type l -delete
+        find /var/log/aella -type d -exec chown root:syslog {} +
+        find /var/log/aella -type d -exec chmod 0750 {} +
+        find /var/log/aella -type f -exec chown root:syslog {} +
+        find /var/log/aella -type f -exec chmod 0640 {} +
+        find /var/lib/aella -type l -delete
+        find /var/lib/aella -type d -exec chown root:syslog {} +
+        find /var/lib/aella -type d -exec chmod 0750 {} +
+        find /var/lib/aella -type f -exec chown root:syslog {} +
+        find /var/lib/aella -type f -exec chmod 0640 {} +
     fi
 
     # 11) Verification
@@ -10387,10 +10554,10 @@ EOF
         ls -l /usr/local/bin/aella_cli* 2>/dev/null || true
 
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] verify: venv appliance_cli import"
-        (cd /tmp && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('appliance_cli import OK')") >>"${ERRLOG}" 2>&1 || true
+        (cd / && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('appliance_cli import OK')") >>"${ERRLOG}" 2>&1 || true
 
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] verify: runtime import check"
-        (cd /tmp && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('runtime import OK')") >>"${ERRLOG}" 2>&1 || true
+        (cd / && "${VENV_DIR}/bin/python" -c "import appliance_cli; print('runtime import OK')") >>"${ERRLOG}" 2>&1 || true
 
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 13] verify: error log path => ${ERRLOG}"
         tail -n 40 "${ERRLOG}" 2>/dev/null || true
