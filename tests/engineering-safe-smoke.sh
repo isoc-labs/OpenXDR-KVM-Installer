@@ -42,5 +42,10 @@ for f in "${installers[@]}"; do
   grep -Fq 'sshd -T -C user=stellar' "$f" || {
     echo "missing effective SSH policy verification: $f" >&2; exit 1;
   }
+  for package in iputils-ping tcpdump traceroute net-tools iproute2 bind9-dnsutils htop procps util-linux; do
+    grep -qw "$package" "$f" || {
+      echo "missing allowlisted diagnostic package $package: $f" >&2; exit 1;
+    }
+  done
 done
 echo "ENGINEERING_SAFE_SMOKE=PASS"
