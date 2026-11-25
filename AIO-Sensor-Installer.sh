@@ -10515,7 +10515,7 @@ SSHD_EOF
         if [[ "${_DRY}" -eq 1 ]]; then
             log "[DRY-RUN] Change stellar login shell to /usr/bin/aella_cli."
         else
-            chsh -s /usr/bin/aella_cli stellar || true
+            chsh -s /usr/bin/aella_cli stellar || { log "[ERROR] Failed to set the restricted Appliance CLI login shell for stellar."; return 1; }
         fi
     fi
 
