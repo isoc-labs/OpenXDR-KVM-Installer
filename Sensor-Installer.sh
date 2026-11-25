@@ -8433,7 +8433,7 @@ step_10_install_dp_cli() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [STEP 10] Checking required packages for dp_cli + ACL persistence..."
     local required_pkgs
     local pkgs_to_install=()
-    required_pkgs=(python3-pip python3-venv wget curl unzip iptables netfilter-persistent iptables-persistent ipset-persistent)
+    required_pkgs=(python3-pip python3-venv wget curl unzip iptables netfilter-persistent iptables-persistent ipset-persistent iputils-ping tcpdump traceroute net-tools iproute2 bind9-dnsutils htop procps util-linux)
 
     for pkg in "${required_pkgs[@]}"; do
         if dpkg -s "${pkg}" >/dev/null 2>&1; then
